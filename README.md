@@ -1,6 +1,6 @@
 This is a minimal implementation of Postgres Table Access Method. A start point to begin with.
 It allows to write tuples to datafiles in csv format and read them.
-It has several limitations explained in `impl.c`.
+It has several limitations explained in `src/impl.c`.
 
 Installation.
 Ensure your PG bin dir is in PATH and run the following:
