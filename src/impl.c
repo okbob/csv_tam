@@ -20,6 +20,12 @@
 #include <nodes/makefuncs.h>
 #include <optimizer/plancat.h>
 
+#if PG_VERSION_NUM >= 190000
+
+#include "storage/fd.h"
+
+#endif
+
 /* state for read operations */
 typedef struct
 {
@@ -54,7 +60,16 @@ csv_beginscan(Relation relation, Snapshot snapshot, int nkeys,
 {
 	CsvScanState *state;
 	List	   *options = NIL;
+
+#if PG_VERSION_NUM >= 180000
+
+	RelPathStr	filename;
+
+#else
+
 	char	   *filename;
+
+#endif
 
 	elog(NOTICE, "Calling %s...", __func__);
 
@@ -71,7 +86,16 @@ csv_beginscan(Relation relation, Snapshot snapshot, int nkeys,
 	filename = relpathperm(relation->rd_locator, MAIN_FORKNUM);
 	options = lappend(options, makeDefElem("format", (Node *) makeString("csv"), -1));
 	options = lappend(options, makeDefElem("delimiter", (Node *) makeString((char *) delimiter), -1));
+
+#if PG_VERSION_NUM >= 180000
+
+	state->cstate = BeginCopyFrom(NULL, relation, NULL, filename.str, false, NULL, NIL, options);
+
+#else
+
 	state->cstate = BeginCopyFrom(NULL, relation, NULL, filename, false, NULL, NIL, options);
+
+#endif
 
 	return &state->base;
 }
@@ -167,7 +191,16 @@ void
 csv_estimate_rel_size(Relation relation, int32 *attr_widths, BlockNumber *pages,
 					  double *tuples, double *allvisfrac)
 {
+#if PG_VERSION_NUM >= 180000
+
+	RelPathStr	filename;
+
+#else
+
 	char	   *filename;
+
+#endif
+
 	File		file;
 	off_t		filesize;
 
@@ -187,7 +220,17 @@ csv_estimate_rel_size(Relation relation, int32 *attr_widths, BlockNumber *pages,
 	 * pages = rows_count * tuple_width;
 	 */
 	filename = relpathperm(relation->rd_locator, MAIN_FORKNUM);
+
+#if PG_VERSION_NUM >= 180000
+
+	file = PathNameOpenFile(filename.str, O_RDONLY);
+
+#else
+
 	file = PathNameOpenFile(filename, O_RDONLY);
+
+#endif
+
 	filesize = FileSize(file);
 	FileClose(file);
 	*pages = filesize / BLCKSZ;
@@ -208,7 +251,17 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 	TupleDesc	desc;
 	int			natts;
 	FmgrInfo   *out_functions;
+
+#if PG_VERSION_NUM >= 180000
+
+	RelPathStr	filename;
+
+#else
+
 	char	   *filename;
+
+#endif
+
 	File		file;
 	off_t		filesize;
 
@@ -231,7 +284,17 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 
 	/* write all incoming rows to datafile */
 	filename = relpathperm(relation->rd_locator, MAIN_FORKNUM);
+
+#if PG_VERSION_NUM >= 180000
+
+	file = PathNameOpenFile(filename.str, O_RDWR);
+
+#else
+
 	file = PathNameOpenFile(filename, O_RDWR);
+
+#endif
+
 	filesize = FileSize(file);
 	for (int i = 0; i < ntuples; i++)
 	{
@@ -260,7 +323,17 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 				appendStringInfoString(&buf, delimiter);
 			else
 			{
+
+#if PG_VERSION_NUM >= 180000
+
+				elog(NOTICE, "Inserting row '%s' into '%s'", buf.data, filename.str);
+
+#else
+
 				elog(NOTICE, "Inserting row '%s' into '%s'", buf.data, filename);
+
+#endif
+
 				appendStringInfoChar(&buf, '\n');
 			}
 		}

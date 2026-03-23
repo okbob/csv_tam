@@ -156,18 +156,46 @@ csv_relation_copy_for_cluster(Relation OldHeap, Relation NewHeap, Relation OldIn
 	elog(ERROR, "csv_relation_copy_for_cluster is not implemented");
 }
 
+#if PG_VERSION_NUM >= 190000
+
+static inline void
+csv_vacuum_rel(Relation rel, const VacuumParams params, BufferAccessStrategy bstrategy)
+{
+	elog(ERROR, "csv_vacuum_rel is not implemented");
+}
+
+#else
+
 static inline void
 csv_vacuum_rel(Relation rel, VacuumParams *params, BufferAccessStrategy bstrategy)
 {
 	elog(ERROR, "csv_vacuum_rel is not implemented");
 }
 
+#endif
+
+#if PG_VERSION_NUM >= 180000
+
 static inline bool
-csv_scan_analyze_next_block(TableScanDesc scan, BlockNumber blockno, BufferAccessStrategy bstrategy)
+csv_scan_analyze_next_block(TableScanDesc scan, ReadStream *stream)
 {
 	elog(ERROR, "csv_scan_analyze_next_block is not implemented");
 	return false;
 }
+
+#endif
+
+#if PG_VERSION_NUM >= 190000
+
+static inline bool
+csv_scan_analyze_next_tuple(TableScanDesc scan, double *liverows,
+							double *deadrows, TupleTableSlot *slot)
+{
+	elog(ERROR, "csv_scan_analyze_next_tuple is not implemented");
+	return false;
+}
+
+#else
 
 static inline bool
 csv_scan_analyze_next_tuple(TableScanDesc scan, TransactionId OldestXmin, double *liverows,
@@ -176,6 +204,8 @@ csv_scan_analyze_next_tuple(TableScanDesc scan, TransactionId OldestXmin, double
 	elog(ERROR, "csv_scan_analyze_next_tuple is not implemented");
 	return false;
 }
+
+#endif
 
 static inline double
 csv_index_build_range_scan(Relation heapRelation, Relation indexRelation, IndexInfo *indexInfo,
