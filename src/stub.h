@@ -218,7 +218,7 @@ csv_vacuum_rel(Relation rel, VacuumParams *params, BufferAccessStrategy bstrateg
 
 #endif
 
-#if PG_VERSION_NUM >= 180000
+#if PG_VERSION_NUM >= 170000
 
 static inline bool
 csv_scan_analyze_next_block(TableScanDesc scan, ReadStream *stream)

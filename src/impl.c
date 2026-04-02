@@ -380,6 +380,7 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 			}
 		}
 
+		/* synchronize write */
 		LWLockAcquire(&locks->write_lock, LW_EXCLUSIVE);
 
 		/* write row to file */
@@ -388,10 +389,22 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 		LWLockRelease(&locks->write_lock);
 
 		if (nbytes != buf.len)
+
+#if PG_VERSION_NUM >= 180000
+
 			ereport(ERROR,
 					(errcode_for_file_access(),
 					 errmsg("could not write to file \"%s\", wrote %d of %d: %m", filename.str,
 							nbytes, buf.len)));
+
+#else
+
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not write to file \"%s\", wrote %d of %d: %m", filename,
+							nbytes, buf.len)));
+
+#endif
 
 		filesize += buf.len;
 
