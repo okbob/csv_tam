@@ -2,7 +2,6 @@
  * This is a minimal implementation of table access method.
  * It allows to write tuples to datafiles in csv format and read them.
  * Implementation is as simple as it may be. Multiple questions are still uncovered.
- * 1) No concurrent writes
  * 2) No transactional writes
  * 4) No crash recovery. Custom resource manager is not implemented.
  * 5) No file closing in case of error
@@ -12,12 +11,14 @@
 
 #include "impl.h"
 
-#include <utils/lsyscache.h>
-#include <miscadmin.h>
-#include <catalog/storage.h>
-#include <commands/copy.h>
-#include <nodes/makefuncs.h>
-#include <optimizer/plancat.h>
+#include "utils/lsyscache.h"
+#include "miscadmin.h"
+#include "catalog/storage.h"
+#include "commands/copy.h"
+#include "nodes/makefuncs.h"
+#include "optimizer/plancat.h"
+#include "storage/lwlock.h"
+#include "utils/wait_event_types.h"
 
 #if PG_VERSION_NUM >= 190000
 
@@ -32,6 +33,14 @@ typedef struct
 								 * beginscan */
 	CopyFromState cstate;		/* 'copy' state to read csv from file */
 }			CsvScanState;
+
+typedef struct
+{
+	int			tranche_id;
+	LWLock		write_lock;
+} csv_tam_locks;
+
+static csv_tam_locks *locks = NULL;
 
 static const char *delimiter = ",";
 static const uint32 rows_count = 100;
@@ -269,6 +278,35 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 
 	File		file;
 	off_t		filesize;
+	int			nbytes;
+	bool		found;
+
+	if (!locks)
+	{
+		LWLockAcquire(AddinShmemInitLock, LW_EXCLUSIVE);
+		locks = ShmemInitStruct("csv_tam", sizeof(csv_tam_locks), &found);
+
+		if (!found)
+		{
+
+#if PG_VERSION_NUM >= 190000
+
+		locks->tranche_id = LWLockNewTrancheId("csv_tam write lock");
+		LWLockInitialize(&locks->write_lock, locks->tranche_id);
+
+#else
+
+		locks->tranche_id = LWLockNewTrancheId();
+		LWLockRegisterTranche(locks->tranche_id, "csv_tam write lock");
+		LWLockInitialize(&locks->write_lock, locks->tranche_id);
+
+#endif
+
+		}
+
+		LWLockRelease(AddinShmemInitLock);
+
+	}
 
 	desc = RelationGetDescr(relation);
 	natts = RelationGetNumberOfAttributes(relation);
@@ -341,12 +379,31 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 				appendStringInfoChar(&buf, '\n');
 			}
 		}
+
+		LWLockAcquire(&locks->write_lock, LW_EXCLUSIVE);
+
 		/* write row to file */
-		FileWrite(file, buf.data, buf.len, filesize, 0);
+		nbytes = FileWrite(file, buf.data, buf.len, filesize, WAIT_EVENT_DATA_FILE_WRITE);
+
+		LWLockRelease(&locks->write_lock);
+
+		if (nbytes != buf.len)
+			ereport(ERROR,
+					(errcode_for_file_access(),
+					 errmsg("could not write to file \"%s\", wrote %d of %d: %m", filename.str,
+							nbytes, buf.len)));
+
 		filesize += buf.len;
 
 		resetStringInfo(&buf);
 	}
+
+	if (FileSync(file, WAIT_EVENT_DATA_FILE_SYNC) < 0)
+		ereport(ERROR,
+				(errcode_for_file_access(),
+				 errmsg("could not fsync file \"%s\": %m",
+						FilePathName(file))));
+
 	FileClose(file);
 	pfree(buf.data);
 }
