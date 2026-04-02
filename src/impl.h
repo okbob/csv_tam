@@ -13,8 +13,21 @@ void		csv_relation_set_new_filelocator(Relation rel, const RelFileLocator *newrl
 bool		csv_relation_needs_toast_table(Relation rel);
 void		csv_estimate_rel_size(Relation rel, int32 *attr_widths, BlockNumber *pages,
 								  double *tuples, double *allvisfrac);
-void		csv_tuple_insert(Relation relation, TupleTableSlot *slot, CommandId cid, int options, BulkInsertState bistate);
+
+#if PG_VERSION_NUM >= 190000
+
+void		csv_tuple_insert(Relation relation, TupleTableSlot *slot, CommandId cid,
+							 uint32 options, BulkInsertState bistate);
+void		csv_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
+							 CommandId cid, uint32 options, BulkInsertState bistate);
+
+#else
+
+void		csv_tuple_insert(Relation relation, TupleTableSlot *slot, CommandId cid,
+							 int options, BulkInsertState bistate);
 void		csv_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 							 CommandId cid, int options, BulkInsertState bistate);
+
+#endif
 
 #endif

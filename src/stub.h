@@ -36,8 +36,18 @@ csv_parallelscan_reinitialize(Relation rel, ParallelTableScanDesc pscan)
 	elog(ERROR, "csv_parallelscan_reinitialize is not implemented");
 }
 
+#if PG_VERSION_NUM >= 190000
+
+static inline IndexFetchTableData *
+csv_index_fetch_begin(Relation rel, uint32 flags)
+
+#else
+
 static inline IndexFetchTableData *
 csv_index_fetch_begin(Relation rel)
+
+#endif
+
 {
 	elog(ERROR, "csv_index_fetch_begin is not implemented");
 	return NULL;
@@ -63,9 +73,20 @@ csv_index_fetch_tuple(struct IndexFetchTableData *scan, ItemPointer tid, Snapsho
 	return false;
 }
 
+#if PG_VERSION_NUM >= 190000
+
+static inline void
+csv_tuple_insert_speculative(Relation relation, TupleTableSlot *slot, CommandId cid,
+							 uint32 options, BulkInsertState bistate, uint32 specToken)
+
+#else
+
 static inline void
 csv_tuple_insert_speculative(Relation relation, TupleTableSlot *slot, CommandId cid,
 							 int options, BulkInsertState bistate, uint32 specToken)
+
+#endif
+
 {
 	elog(ERROR, "csv_tuple_insert_speculative is not implemented");
 }
@@ -76,18 +97,41 @@ csv_tuple_complete_speculative(Relation relation, TupleTableSlot *slot, uint32 s
 	elog(ERROR, "csv_tuple_complete_speculative is not implemented");
 }
 
+#if PG_VERSION_NUM >= 190000
+
+static inline TM_Result
+csv_tuple_delete(Relation relation, ItemPointer tid, CommandId cid, uint32 options, Snapshot snapshot,
+				 Snapshot crosscheck, bool wait, TM_FailureData *tmfd)
+
+#else
+
 static inline TM_Result
 csv_tuple_delete(Relation relation, ItemPointer tid, CommandId cid, Snapshot snapshot,
 				 Snapshot crosscheck, bool wait, TM_FailureData *tmfd, bool changingPart)
+
+#endif
+
 {
 	elog(ERROR, "csv_tuple_delete is not implemented");
 	return TM_Ok;
 }
 
+#if PG_VERSION_NUM >= 190000
+
+static inline TM_Result
+csv_tuple_update(Relation relation, ItemPointer otid, TupleTableSlot *slot, CommandId cid,
+				 uint32 options, Snapshot snapshot, Snapshot crosscheck, bool wait, TM_FailureData *tmfd,
+				 LockTupleMode *lockmode, TU_UpdateIndexes *update_indexes)
+
+#else
+
 static inline TM_Result
 csv_tuple_update(Relation relation, ItemPointer otid, TupleTableSlot *slot, CommandId cid,
 				 Snapshot snapshot, Snapshot crosscheck, bool wait, TM_FailureData *tmfd,
 				 LockTupleMode *lockmode, TU_UpdateIndexes *update_indexes)
+
+#endif
+
 {
 	elog(ERROR, "csv_tuple_update is not implemented");
 	return TM_Ok;
@@ -159,7 +203,7 @@ csv_relation_copy_for_cluster(Relation OldHeap, Relation NewHeap, Relation OldIn
 #if PG_VERSION_NUM >= 190000
 
 static inline void
-csv_vacuum_rel(Relation rel, const VacuumParams params, BufferAccessStrategy bstrategy)
+csv_vacuum_rel(Relation rel, const VacuumParams *params, BufferAccessStrategy bstrategy)
 {
 	elog(ERROR, "csv_vacuum_rel is not implemented");
 }

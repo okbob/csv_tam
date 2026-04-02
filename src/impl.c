@@ -71,7 +71,7 @@ csv_beginscan(Relation relation, Snapshot snapshot, int nkeys,
 
 #endif
 
-	elog(NOTICE, "Calling %s...", __func__);
+	elog(DEBUG1, "Calling %s...", __func__);
 
 	state = palloc0(sizeof(*state));
 	/* init base state */
@@ -107,7 +107,7 @@ csv_getnextslot(TableScanDesc sscan, ScanDirection direction, TupleTableSlot *sl
 	CsvScanState *state = (CsvScanState *) sscan;
 	bool		found;
 
-	elog(NOTICE, "Calling %s...", __func__);
+	elog(DEBUG1, "Calling %s...", __func__);
 
 	/* follow the core contract, clear slot from any previous garbage */
 	ExecClearTuple(slot);
@@ -131,44 +131,7 @@ csv_endscan(TableScanDesc sscan)
 	 * custom context is not used. However, 'copy' state should be ended manually.
 	 */
 	EndCopyFrom(state->cstate);
-	elog(NOTICE, "Calling %s...", __func__);
-}
-
-/*
- * A helper method.
- * Check if relation has unsupported data types.
- * We leave this example simple, so text types are not used. They need
- * escaping during write.
- * Better to call this in DDL hooks, during CREATE and ALTER, for example.
- */
-static void
-check_atts_type(Relation relation)
-{
-	TupleDesc	desc;
-	int			natts;
-
-	desc = RelationGetDescr(relation);
-	natts = RelationGetNumberOfAttributes(relation);
-	for (int i = 0; i < natts; i++)
-	{
-		Form_pg_attribute attr = TupleDescAttr(desc, i);
-
-		switch (attr->atttypid)
-		{
-			case INT2OID:
-			case INT4OID:
-			case INT8OID:
-			case FLOAT4OID:
-			case FLOAT8OID:
-			case DATEOID:
-			case TIMESTAMPOID:
-			case TIMESTAMPTZOID:
-			case NUMERICOID:
-				break;
-			default:
-				elog(ERROR, "Unsupported type for column %s", NameStr(attr->attname));
-		}
-	}
+	elog(DEBUG1, "Calling %s...", __func__);
 }
 
 /* initialize storage for new relation; can happen during CREATE or TRUNCATE */
@@ -178,8 +141,7 @@ csv_relation_set_new_filelocator(Relation relation, const RelFileLocator *newrlo
 {
 	SMgrRelation srel;
 
-	elog(NOTICE, "Calling %s...", __func__);
-	check_atts_type(relation);
+	elog(DEBUG1, "Calling %s...", __func__);
 
 	/* create new datafile for MAIN_FORKNUM */
 	srel = RelationCreateStorage(*newrlocator, persistence, true);
@@ -204,7 +166,7 @@ csv_estimate_rel_size(Relation relation, int32 *attr_widths, BlockNumber *pages,
 	File		file;
 	off_t		filesize;
 
-	elog(NOTICE, "Calling %s...", __func__);
+	elog(DEBUG1, "Calling %s...", __func__);
 
 	/* all rows are visible */
 	*allvisfrac = 1.0;
@@ -244,13 +206,57 @@ csv_estimate_rel_size(Relation relation, int32 *attr_widths, BlockNumber *pages,
 	*tuples = rows_count;
 }
 
-/* a helper method to write rows to file */
+static void
+csv_escaped_print(const char *str, StringInfo target)
+{
+	const char *p;
+
+	appendStringInfoChar(target, '"');
+	for (p = str; *p; p++)
+	{
+		if (*p == '"')
+			appendStringInfoChar(target, '"');	/* double quotes are doubled */
+		appendStringInfoChar(target, *p);
+	}
+	appendStringInfoChar(target, '"');
+}
+
+static void
+csv_print_field(const char *str, StringInfo target, char sep)
+{
+	/*----------------
+	 * Enclose and escape field contents when one of these conditions is met:
+	 * - the field separator is found in the contents.
+	 * - the field contains a CR or LF.
+	 * - the field contains a double quote.
+	 * - the field is exactly "\.".
+	 * - the field separator is either "\" or ".".
+	 * The last two cases prevent producing a line that the server's COPY
+	 * command would interpret as an end-of-data marker.  We only really
+	 * need to ensure that the complete line isn't exactly "\.", but for
+	 * simplicity we apply stronger restrictions here.
+	 *----------------
+	 */
+	if (strchr(str, sep) != NULL ||
+		strcspn(str, "\r\n\"") != strlen(str) ||
+		strcmp(str, "\\.") == 0 ||
+		sep == '\\' || sep == '.')
+		csv_escaped_print(str, target);
+	else
+		appendStringInfoString(target, str);
+}
+
+/*
+ * a helper method to write rows to file
+ * Unfortunately, related Copy routine is not public.
+ */
 static void
 write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 {
 	TupleDesc	desc;
 	int			natts;
 	FmgrInfo   *out_functions;
+	StringInfoData buf;
 
 #if PG_VERSION_NUM >= 180000
 
@@ -264,8 +270,6 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 
 	File		file;
 	off_t		filesize;
-
-	check_atts_type(relation);
 
 	desc = RelationGetDescr(relation);
 	natts = RelationGetNumberOfAttributes(relation);
@@ -295,11 +299,12 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 
 #endif
 
+	initStringInfo(&buf);
+
 	filesize = FileSize(file);
 	for (int i = 0; i < ntuples; i++)
 	{
 		TupleTableSlot *slot = slots[i];
-		StringInfoData buf;
 
 		initStringInfo(&buf);
 
@@ -316,21 +321,21 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 			{
 				char	   *string = OutputFunctionCall(&out_functions[j], value);
 
-				appendStringInfoString(&buf, string);
+				csv_print_field(string, &buf, *delimiter);
 			}
 			/* last value doesn't need delimiter, but needs newline symbol */
 			if (j < natts - 1)
-				appendStringInfoString(&buf, delimiter);
+				appendStringInfoChar(&buf, *delimiter);
 			else
 			{
 
 #if PG_VERSION_NUM >= 180000
 
-				elog(NOTICE, "Inserting row '%s' into '%s'", buf.data, filename.str);
+				elog(DEBUG1, "Inserting row '%s' into '%s'", buf.data, filename.str);
 
 #else
 
-				elog(NOTICE, "Inserting row '%s' into '%s'", buf.data, filename);
+				elog(DEBUG1, "Inserting row '%s' into '%s'", buf.data, filename);
 
 #endif
 
@@ -340,24 +345,50 @@ write_rows(Relation relation, TupleTableSlot **slots, int ntuples)
 		/* write row to file */
 		FileWrite(file, buf.data, buf.len, filesize, 0);
 		filesize += buf.len;
+
+		resetStringInfo(&buf);
 	}
 	FileClose(file);
+	pfree(buf.data);
 }
 
 /* write multiple rows at once */
+
+#if PG_VERSION_NUM >= 190000
+
+void
+csv_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
+				 CommandId cid, uint32 options, BulkInsertState bistate)
+
+#else
+
 void
 csv_multi_insert(Relation relation, TupleTableSlot **slots, int ntuples,
 				 CommandId cid, int options, BulkInsertState bistate)
+
+#endif
+
 {
-	elog(NOTICE, "Calling %s...", __func__);
+	elog(DEBUG1, "Calling %s...", __func__);
 	write_rows(relation, slots, ntuples);
 }
 
 /* write single row */
+#if PG_VERSION_NUM >= 190000
+
+void
+csv_tuple_insert(Relation relation, TupleTableSlot *slot,
+				 CommandId cid, uint32 options, BulkInsertState bistate)
+
+#else
+
 void
 csv_tuple_insert(Relation relation, TupleTableSlot *slot,
 				 CommandId cid, int options, BulkInsertState bistate)
+
+#endif
+
 {
-	elog(NOTICE, "Calling %s...", __func__);
+	elog(DEBUG1, "Calling %s...", __func__);
 	write_rows(relation, &slot, 1);
 }
