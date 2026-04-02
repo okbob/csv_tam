@@ -4,7 +4,6 @@
  * Implementation is as simple as it may be. Multiple questions are still uncovered.
  * 1) No concurrent writes
  * 2) No transactional writes
- * 3) Limited data types support
  * 4) No crash recovery. Custom resource manager is not implemented.
  * 5) No file closing in case of error
  * 6) Other limitations explained in code.
